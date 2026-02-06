@@ -5,6 +5,17 @@ import numpy as np
 from .constants import CAUSAL_VAR_TO_FEATURE
 
 
+# Additional features to check per causal variable for faithfulness
+_FAITHFULNESS_FEATURES: Dict[str, List[str]] = {
+    "customer_anger": ["emotion_anger", "emotion_frustration", "emotion_urgency"],
+    "delay": ["discourse_delay", "discourse_complaint"],
+    "agent_response_quality": ["discourse_denial", "discourse_apology"],
+    "escalation": ["discourse_escalation_request", "discourse_complaint"],
+    "repetition": ["discourse_complaint"],
+    "resolution_time": ["discourse_delay", "discourse_complaint"],
+}
+
+
 def id_recall(
     predicted_causes: List[str],
     ground_truth_causes: List[str],
@@ -26,12 +37,19 @@ def faithfulness_score(
 
     grounded = 0
     for var in explanation_variables:
-        feat_key = CAUSAL_VAR_TO_FEATURE.get(var)
-        if feat_key is None:
+        # Check multiple feature keys for the variable
+        feat_keys = _FAITHFULNESS_FEATURES.get(var, [])
+        primary = CAUSAL_VAR_TO_FEATURE.get(var)
+        if primary and primary not in feat_keys:
+            feat_keys = [primary] + feat_keys
+        if not feat_keys:
             continue
         var_evs = evidence_turns.get(var, [])
         if any(
-            turn_features[ev["turn_idx"]].get(feat_key, 0.0) > 0
+            any(
+                turn_features[ev["turn_idx"]].get(fk, 0.0) > 0
+                for fk in feat_keys
+            )
             for ev in var_evs
             if ev["turn_idx"] < len(turn_features)
         ):

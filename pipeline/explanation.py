@@ -11,16 +11,26 @@ from .constants import CAUSAL_VAR_TO_FEATURE
 def retrieve_evidence_turns(
     turn_features: List[dict],
     causal_variable: str,
-    top_k: int = 3,
+    top_k: int = 5,
 ) -> List[dict]:
     feature_key = CAUSAL_VAR_TO_FEATURE.get(causal_variable, "discourse_complaint")
 
     scored: List[dict] = []
     for i, tf in enumerate(turn_features):
         score = tf.get(feature_key, 0.0)
-        # For anger, also include frustration
+        # For anger, also include frustration and urgency
         if causal_variable == "customer_anger":
-            score = max(score, tf.get("emotion_frustration", 0.0))
+            score = max(
+                score,
+                tf.get("emotion_frustration", 0.0),
+                tf.get("emotion_urgency", 0.0),
+            )
+        # For delay, also consider complaint mentions
+        elif causal_variable == "delay":
+            score = max(score, tf.get("discourse_complaint", 0.0) * 0.5)
+        # For agent quality, also consider apology (inverse signal)
+        elif causal_variable == "agent_response_quality":
+            score = max(score, tf.get("discourse_apology", 0.0) * 0.3)
         scored.append({
             "turn_idx": i,
             "text": tf["text"],
