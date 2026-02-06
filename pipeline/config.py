@@ -10,7 +10,8 @@ class DataConfig:
     json_path: str = "Datasets/processed/conversation_transcript_map.json"
     max_turns: int = 64
     max_token_len: int = 128
-    test_size: float = 0.2
+    val_size: float = 0.1
+    test_size: float = 0.1
     random_seed: int = 42
 
 

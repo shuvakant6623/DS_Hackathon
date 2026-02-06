@@ -121,9 +121,9 @@ def train_encoder(
     epochs: Optional[int] = None,
     verbose: bool = True,
 ) -> Dict[str, Any]:
+    device = torch.device(config.device)
     if records is None:
         records = process_dataset(config)
-    device = torch.device(config.device)
     n_epochs = epochs or config.encoder.epochs
     lr = config.encoder.learning_rate
 
@@ -131,9 +131,11 @@ def train_encoder(
     np.random.seed(config.data.random_seed)
     n = len(records)
     indices = np.random.permutation(n)
-    split = int(n * (1 - config.data.test_size))
-    train_records = [records[i] for i in indices[:split]]
-    val_records = [records[i] for i in indices[split:]]
+    val_split = int(n * (1 - config.data.val_size - config.data.test_size))
+    test_split = int(n * (1 - config.data.test_size))
+    train_records = [records[i] for i in indices[:val_split]]
+    val_records = [records[i] for i in indices[val_split:test_split]]
+    test_records = [records[i] for i in indices[test_split:]]
 
     train_ds = _ConversationDataset(train_records)
     val_ds = _ConversationDataset(val_records)
@@ -216,8 +218,43 @@ def train_encoder(
     })
     if verbose:
         print(f"  Encoder saved to {paths['encoder']}")
-
+    train_all()
+    history["_test_state"] = {
+        "model": model_cpu,
+        "test_records": test_records,
+    }
     return history
+
+def _evaluate_encoder_test(
+    model: nn.Module,
+    test_loader: DataLoader,
+    emotion_loss_fn: nn.Module,
+    outcome_loss_fn: nn.Module,
+    device: torch.device,
+) -> Dict[str, float]:
+    """Evaluate the encoder on a held-out test set and return loss/accuracy."""
+    model.eval()
+    test_loss = 0.0
+    correct = 0
+    total = 0
+    n_batches = 0
+    with torch.no_grad():
+        for features, emo_labels, out_labels in test_loader:
+            features = features.to(device)
+            emo_labels = emo_labels.to(device)
+            out_labels = out_labels.to(device)
+            out = model(features)
+            loss = emotion_loss_fn(out["emotion_logits"], emo_labels) + \
+                   outcome_loss_fn(out["outcome_logits"], out_labels)
+            test_loss += loss.item()
+            preds = out["outcome_logits"].argmax(dim=1)
+            correct += (preds == out_labels).sum().item()
+            total += len(out_labels)
+            n_batches += 1
+    return {
+        "test_loss": test_loss / max(n_batches, 1),
+        "test_accuracy": correct / max(total, 1),
+    }
 
 def _build_turn_embeddings(turn_features: List[dict], embed_dim: int = 32) -> torch.Tensor:
     """Build feature-based turn embeddings (same as CausalAnalysisPipeline._encode_turns)."""
@@ -253,6 +290,8 @@ def train_gnn(
     checkpoint_dir: str = "checkpoints",
     epochs: Optional[int] = None,
     verbose: bool = True,
+    device: str = "cpu"
+
 ) -> Dict[str, Any]:
     if records is None:
         records = process_dataset(config)
@@ -281,9 +320,11 @@ def train_gnn(
     # Train / val split
     np.random.seed(config.data.random_seed)
     idx = np.random.permutation(len(graphs))
-    split = int(len(graphs) * (1 - config.data.test_size))
-    train_graphs = [graphs[i] for i in idx[:split]]
-    val_graphs = [graphs[i] for i in idx[split:]]
+    val_split = int(len(graphs) * (1 - config.data.val_size - config.data.test_size))
+    test_split = int(len(graphs) * (1 - config.data.test_size))
+    train_graphs = [graphs[i] for i in idx[:val_split]]
+    val_graphs = [graphs[i] for i in idx[val_split:test_split]]
+    test_graphs = [graphs[i] for i in idx[test_split:]]
 
     model = DiscourseGNN(config.discourse, input_dim=embed_dim).to(device)
     loss_fn = DiscourseGraphLoss()
@@ -356,7 +397,44 @@ def train_gnn(
     if verbose:
         print(f"  GNN saved to {paths['gnn']}")
 
+    train_all()
+    history["_test_state"] = {
+        "model": model_cpu,
+        "test_graphs": test_graphs,
+    }
+
     return history
+
+def _evaluate_gnn_test(
+    model: DiscourseGNN,
+    test_graphs: List[dict],
+    loss_fn: DiscourseGraphLoss,
+    device: torch.device,
+) -> Dict[str, float]:
+    """Evaluate the GNN on a held-out test set and return loss/accuracy."""
+    model.eval()
+    test_loss = 0.0
+    correct = 0
+    total = 0
+    n_batches = 0
+    with torch.no_grad():
+        for g in test_graphs:
+            node_feat = g["node_features"].to(device)
+            edge_idx = g["edge_index"].to(device)
+            edge_attr = g["edge_attr"].to(device)
+            out = model(node_feat, edge_idx)
+            edge_logits = model.classify_edges(out["node_embeddings"], edge_idx)
+            loss = loss_fn(edge_logits, edge_attr)
+            test_loss += loss.item()
+            preds = edge_logits.argmax(dim=1)
+            correct += (preds == edge_attr).sum().item()
+            total += len(edge_attr)
+            n_batches += 1
+    return {
+        "test_loss": test_loss / max(n_batches, 1),
+        "test_accuracy": correct / max(total, 1),
+    }
+
 
 
 def train_all(
@@ -377,14 +455,14 @@ def train_all(
 
     # Load data once
     if verbose:
-        print("\n[1/3] Loading data...")
+        print("\n[1/4] Loading data...")
     records = process_dataset(config)
     if verbose:
         print(f"  Loaded {len(records)} conversation records.")
 
     # Stage 1: Encoder
     if verbose:
-        print("\n[2/3] Training feature encoder...")
+        print("\n[2/4] Training feature encoder...")
     enc_hist = train_encoder(
         config, records, checkpoint_dir,
         epochs=encoder_epochs, verbose=verbose,
@@ -392,11 +470,47 @@ def train_all(
 
     # Stage 2: GNN
     if verbose:
-        print("\n[3/3] Training discourse GNN...")
+        print("\n[3/4] Training discourse GNN...")
     gnn_hist = train_gnn(
         config, records, checkpoint_dir,
         epochs=gnn_epochs, verbose=verbose,
     )
+    device = torch.device(config.device)
+
+    if verbose:
+        print("\n[4/4] Running Final test Evaluation ...")
+        print("-" * 40)
+
+        enc_test_state = enc_hist.pop("_test_state", None)
+        if enc_test_state is not None:
+            enc_model = enc_test_state["model"].to(device)
+            test_ds = _ConversationDataset(enc_test_state["test_records"])
+            test_loader = DataLoader(test_ds, batch_size=config.encoder.batch_size)
+            emotion_loss_fn = nn.CrossEntropyLoss()
+            outcome_loss_fn = nn.CrossEntropyLoss()
+            enc_test = _evaluate_encoder_test(
+                enc_model, test_loader, emotion_loss_fn, outcome_loss_fn, device,
+            )
+            enc_hist["test_loss"] = enc_test["test_loss"]
+            enc_hist["test_accuracy"] = enc_test["test_accuracy"]
+            if verbose:
+                print(f"  Encoder  test_loss={enc_test['test_loss']:.4f}"
+                      f"  test_acc={enc_test['test_accuracy']:.4f}")
+
+        gnn_test_state = gnn_hist.pop("_test_state", None)
+        if gnn_test_state is not None:
+            gnn_model = gnn_test_state["model"].to(device)
+            gnn_loss_fn = DiscourseGraphLoss()
+            gnn_test = _evaluate_gnn_test(
+                gnn_model, gnn_test_state["test_graphs"], gnn_loss_fn, device,
+            )
+            gnn_hist["test_loss"] = gnn_test["test_loss"]
+            gnn_hist["test_accuracy"] = gnn_test["test_accuracy"]
+            if verbose:
+                print(f"  GNN      test_loss={gnn_test['test_loss']:.4f}"
+                      f"  test_acc={gnn_test['test_accuracy']:.4f}")
+        if verbose:
+            print("-" * 40)
 
     # Save combined history
     combined = {
