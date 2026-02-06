@@ -1,0 +1,14 @@
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pt
+*.bin
+checkpoints/
+outputs/
+wandb/
+.env
