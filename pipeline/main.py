@@ -24,6 +24,7 @@ from .evaluation import compute_all_metrics
 class CausalAnalysisPipeline:
     def __init__(self, config: PipelineConfig):
         self.config = config
+        self.device = torch.device(config.device)
         self.records: List[dict] = []
         self.causal_dag = CausalDAG(config.causal.causal_variables)
         self.interaction_ctx = InteractionContext(config.explanation)
@@ -65,7 +66,7 @@ class CausalAnalysisPipeline:
             # Pad to embed_dim
             vec.extend([0.0] * (embed_dim - len(vec)))
             embeddings.append(vec[:embed_dim])
-        return torch.tensor(embeddings, dtype=torch.float32)
+        return torch.tensor(embeddings, dtype=torch.float32).to(self.device)
 
     def _build_graph(
         self,
@@ -82,13 +83,12 @@ class CausalAnalysisPipeline:
             self.discourse_gnn = DiscourseGNN(
                 self.config.discourse,
                 input_dim=turn_embeddings.shape[1],
-            )
+            ).to(self.device)
 
         with torch.no_grad():
-            gnn_out = self.discourse_gnn(
-                graph["node_features"],
-                graph["edge_index"],
-            )
+            node_feat = graph["node_features"].to(self.device)
+            edge_idx = graph["edge_index"].to(self.device)
+            gnn_out = self.discourse_gnn(node_feat, edge_idx)
 
         graph.update(gnn_out)
         return graph

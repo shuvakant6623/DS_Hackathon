@@ -12,3 +12,5 @@ checkpoints/
 outputs/
 wandb/
 .env
+*.egg
+.pytest_cache/

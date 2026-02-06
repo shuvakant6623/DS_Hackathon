@@ -81,6 +81,12 @@ class ExplanationConfig:
     max_generation_len: int = 512
     context_window: int = 10
 
+def _resolve_device(device: str) -> str:
+    """Resolve ``'auto'`` to the best available device."""
+    if device == "auto":
+        import torch
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    return device
 
 @dataclass
 class PipelineConfig:
@@ -91,3 +97,7 @@ class PipelineConfig:
     discourse: DiscourseConfig = field(default_factory=DiscourseConfig)
     causal: CausalConfig = field(default_factory=CausalConfig)
     explanation: ExplanationConfig = field(default_factory=ExplanationConfig)
+    device: str = "auto"  # "cpu", "cuda", or "auto" (auto-detect)
+
+    def __post_init__(self) -> None:
+        self.device = _resolve_device(self.device)

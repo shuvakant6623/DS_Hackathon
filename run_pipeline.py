@@ -22,6 +22,11 @@ def main() -> None:
         help="Analyse all conversations",
     )
     parser.add_argument(
+        "--device", type=str, default="auto",
+        choices=["cpu", "cuda", "auto"],
+        help="Device for inference: cpu, cuda, or auto (default: auto)",
+    )
+    parser.add_argument(
         "--query",
         type=str,
         default=None,
@@ -29,7 +34,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    config = PipelineConfig()
+    config = PipelineConfig(device=args.device)
     pipe = CausalAnalysisPipeline(config)
 
     print("Loading data...")
