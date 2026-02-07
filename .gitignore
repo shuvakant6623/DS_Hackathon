@@ -8,8 +8,6 @@ build/
 .eggs/
 *.pt
 *.bin
-checkpoints/
-outputs/
 wandb/
 .env
 *.egg
