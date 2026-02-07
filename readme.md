@@ -1,4 +1,5 @@
 # Causal Analysis Pipeline for Conversational Data
+
 A production-grade causal analysis system for customer service conversations. It identifies causal relationships between discourse patterns, emotional states, and escalation outcomes using a 4-layer architecture — feature extraction, BERT encoding, graph neural networks, and causal inference — to generate explainable, actionable recommendations.
 ---
 ## Table of Contents
