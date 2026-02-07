@@ -14,6 +14,12 @@ A production-grade causal analysis system for customer service conversations. It
 - [Configuration Reference](#configuration-reference)
 - [Testing](#testing)
 ---
+
+# Team Name : Titanic swimming team
+## Shuvakant Patra
+## Shreyans Behera
+## Subodh Kumar Swain
+
 ## Architecture Overview
 The system is organized into four layers:
 
